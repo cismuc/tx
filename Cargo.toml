@@ -10,7 +10,7 @@ path = "src/main.rs"
 [dependencies]
 clap = { version = "4.5", features = ["derive"] }
 tokio = { version = "1.40", features = ["full"] }
-ratatui = "0.29"
+ratatui = "0.28"
 crossterm = { version = "0.28", features = ["event-stream"] }
 portable-pty = "0.8"
 vt100 = "0.15"
