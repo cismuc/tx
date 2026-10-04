@@ -236,4 +236,14 @@ mod tests {
 
         let _ = fs::remove_dir_all(&root);
     }
+
+    #[test]
+    fn test_discover_real_traki_monorepo() {
+        let t_path = PathBuf::from("/Users/muthu/Desktop/Projects/T");
+        if t_path.exists() {
+            let services = discover_services(&t_path).unwrap();
+            let paths: Vec<String> = services.into_iter().map(|s| s.relative_path).collect();
+            assert_eq!(paths, vec!["apps/admin", "apps/backend", "apps/frontend"]);
+        }
+    }
 }
