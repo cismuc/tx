@@ -141,18 +141,31 @@ fn render_terminal(frame: &mut Frame, app: &AppState, area: Rect) {
 }
 
 fn render_status_bar(frame: &mut Frame, _app: &AppState, area: Rect) {
+    let key_style = Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD);
+    let desc_style = Style::default().fg(Color::DarkGray);
+    let bracket_style = Style::default().fg(Color::DarkGray);
+
     let hints = Line::from(vec![
-        Span::styled(" [↑/↓] ", Style::default().fg(Color::Yellow)),
-        Span::raw("Select  "),
-        Span::styled("[Click] ", Style::default().fg(Color::Yellow)),
-        Span::raw("Focus  "),
-        Span::styled("[r] ", Style::default().fg(Color::Yellow)),
-        Span::raw("Restart  "),
-        Span::styled("[q] ", Style::default().fg(Color::Yellow)),
-        Span::raw("Quit"),
+        Span::raw(" "),
+        Span::styled("[", bracket_style),
+        Span::styled("↑/↓", key_style),
+        Span::styled("] ", bracket_style),
+        Span::styled("Select   ", desc_style),
+        Span::styled("[", bracket_style),
+        Span::styled("Click", key_style),
+        Span::styled("] ", bracket_style),
+        Span::styled("Focus   ", desc_style),
+        Span::styled("[", bracket_style),
+        Span::styled("r", key_style),
+        Span::styled("] ", bracket_style),
+        Span::styled("Restart   ", desc_style),
+        Span::styled("[", bracket_style),
+        Span::styled("q", key_style),
+        Span::styled("] ", bracket_style),
+        Span::styled("Quit", desc_style),
     ]);
 
-    let status = Paragraph::new(hints).style(Style::default().bg(Color::DarkGray).fg(Color::White));
+    let status = Paragraph::new(hints);
     frame.render_widget(status, area);
 }
 
