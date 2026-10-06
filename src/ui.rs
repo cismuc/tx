@@ -109,8 +109,9 @@ fn render_sidebar(frame: &mut Frame, app: &AppState, area: Rect) {
         })
         .collect();
 
+    let title = format!(" Services ({}) ", app.script_name);
     let block = Block::default()
-        .title(" Services ")
+        .title(title)
         .borders(Borders::ALL)
         .border_style(Style::default().fg(Color::DarkGray));
 
@@ -186,7 +187,7 @@ mod tests {
             args: vec!["run".to_string(), "dev".to_string()],
         };
 
-        let app = AppState::new(vec![target], 80, 24);
+        let app = AppState::new(vec![target], "dev".to_string(), 80, 24);
         let backend = TestBackend::new(80, 24);
         let mut terminal = Terminal::new(backend).unwrap();
 

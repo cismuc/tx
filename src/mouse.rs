@@ -73,7 +73,7 @@ mod tests {
                 args: vec!["run".to_string(), "dev".to_string()],
             },
         ];
-        AppState::new(targets, 80, 24)
+        AppState::new(targets, "dev".to_string(), 80, 24)
     }
 
     fn mock_areas() -> LayoutAreas {

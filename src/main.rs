@@ -7,7 +7,7 @@ use std::path::PathBuf;
 use std::time::Duration;
 use tokio::sync::mpsc::unbounded_channel;
 use tokio::time::interval;
-use tx::cli::{Cli, Commands};
+use tx::cli::Cli;
 use tx::discovery::discover_services;
 use tx::mouse::handle_mouse_event;
 use tx::pty::{ProcessEvent, PtyProcess};
@@ -17,21 +17,20 @@ use tx::ui::{install_panic_hook, render_ui, TerminalGuard};
 #[tokio::main]
 async fn main() -> Result<()> {
     let cli = Cli::parse();
-    let command = cli.resolved_command();
+    let script = cli.script;
 
-    let target_dir = match command {
-        Commands::Dev { dir } => match dir {
-            Some(d) => PathBuf::from(d),
-            None => env::current_dir()?,
-        },
+    let target_dir = match cli.dir {
+        Some(d) => PathBuf::from(d),
+        None => env::current_dir()?,
     };
 
-    let services = match discover_services(&target_dir) {
+    let services = match discover_services(&target_dir, &script) {
         Ok(s) if !s.is_empty() => s,
         Ok(_) => {
             eprintln!(
-                "tx: No dev services found in {} with a 'dev' script.",
-                target_dir.display()
+                "tx: No packages found in {} with a '{}' script.",
+                target_dir.display(),
+                script
             );
             return Ok(());
         }
@@ -42,8 +41,9 @@ async fn main() -> Result<()> {
     };
 
     println!(
-        "Found {} dev services. Launching tx TUI...",
-        services.len()
+        "Found {} packages with '{}'. Launching tx TUI...",
+        services.len(),
+        script
     );
 
     install_panic_hook();
@@ -54,7 +54,7 @@ async fn main() -> Result<()> {
     let term_pane_rows = term_rows.saturating_sub(3).max(10);
 
     let (event_tx, mut event_rx) = unbounded_channel();
-    let mut app = AppState::new(services.clone(), term_pane_cols, term_pane_rows);
+    let mut app = AppState::new(services.clone(), script.clone(), term_pane_cols, term_pane_rows);
 
     let mut processes: Vec<Option<PtyProcess>> = Vec::with_capacity(services.len());
 

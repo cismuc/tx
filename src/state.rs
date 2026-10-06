@@ -33,12 +33,13 @@ impl ServiceState {
 pub struct AppState {
     pub services: Vec<ServiceState>,
     pub active_index: usize,
+    pub script_name: String,
     pub should_quit: bool,
     pub focus_terminal: bool,
 }
 
 impl AppState {
-    pub fn new(targets: Vec<ServiceTarget>, cols: u16, rows: u16) -> Self {
+    pub fn new(targets: Vec<ServiceTarget>, script_name: String, cols: u16, rows: u16) -> Self {
         let services = targets
             .into_iter()
             .map(|t| ServiceState::new(t, cols, rows))
@@ -46,6 +47,7 @@ impl AppState {
         Self {
             services,
             active_index: 0,
+            script_name,
             should_quit: false,
             focus_terminal: false,
         }
@@ -144,7 +146,7 @@ mod tests {
             mock_target("apps/admin"),
         ];
 
-        let mut app = AppState::new(targets, 80, 24);
+        let mut app = AppState::new(targets, "dev".to_string(), 80, 24);
         assert_eq!(app.active_index, 0);
 
         app.select_next();
@@ -168,7 +170,7 @@ mod tests {
     #[test]
     fn test_app_state_feed_ansi_output() {
         let targets = vec![mock_target("apps/backend")];
-        let mut app = AppState::new(targets, 80, 24);
+        let mut app = AppState::new(targets, "dev".to_string(), 80, 24);
 
         let ansi_text = b"Started server on \x1b[32mhttp://localhost:3000\x1b[0m\r\n";
         app.feed_output(0, ansi_text);
