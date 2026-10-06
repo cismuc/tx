@@ -33,13 +33,13 @@ impl ServiceState {
 pub struct AppState {
     pub services: Vec<ServiceState>,
     pub active_index: usize,
-    pub script_name: String,
+    pub command_display: String,
     pub should_quit: bool,
     pub focus_terminal: bool,
 }
 
 impl AppState {
-    pub fn new(targets: Vec<ServiceTarget>, script_name: String, cols: u16, rows: u16) -> Self {
+    pub fn new(targets: Vec<ServiceTarget>, command_display: String, cols: u16, rows: u16) -> Self {
         let services = targets
             .into_iter()
             .map(|t| ServiceState::new(t, cols, rows))
@@ -47,7 +47,7 @@ impl AppState {
         Self {
             services,
             active_index: 0,
-            script_name,
+            command_display,
             should_quit: false,
             focus_terminal: false,
         }

@@ -31,13 +31,20 @@ impl PackageManager {
         }
     }
 
-    pub fn script_args(&self, script: &str) -> Vec<String> {
-        match self {
-            PackageManager::Bun => vec!["run".to_string(), script.to_string()],
-            PackageManager::Pnpm => vec!["run".to_string(), script.to_string()],
-            PackageManager::Yarn => vec!["run".to_string(), script.to_string()],
-            PackageManager::Npm => vec!["run".to_string(), script.to_string()],
+    pub fn script_args(&self, script: &str, extra_args: &[String]) -> Vec<String> {
+        let mut args = vec!["run".to_string(), script.to_string()];
+        if !extra_args.is_empty() {
+            match self {
+                PackageManager::Npm => {
+                    args.push("--".to_string());
+                    args.extend(extra_args.iter().cloned());
+                }
+                PackageManager::Bun | PackageManager::Pnpm | PackageManager::Yarn => {
+                    args.extend(extra_args.iter().cloned());
+                }
+            }
         }
+        args
     }
 }
 
@@ -81,7 +88,11 @@ struct ChildPackageJson {
     scripts: Option<HashMap<String, String>>,
 }
 
-pub fn discover_services(root: &Path, script: &str) -> Result<Vec<ServiceTarget>> {
+pub fn discover_services(
+    root: &Path,
+    script: &str,
+    extra_args: &[String],
+) -> Result<Vec<ServiceTarget>> {
     let pm = detect_package_manager(root);
     let root_pkg_path = root.join("package.json");
 
@@ -105,7 +116,9 @@ pub fn discover_services(root: &Path, script: &str) -> Result<Vec<ServiceTarget>
             for entry in glob::glob(&glob_str).unwrap_or_else(|_| glob::glob("").unwrap()) {
                 if let Ok(path) = entry {
                     if path.is_dir() {
-                        if let Some(target) = inspect_package_dir(root, &path, pm, script) {
+                        if let Some(target) =
+                            inspect_package_dir(root, &path, pm, script, extra_args)
+                        {
                             services.push(target);
                         }
                     }
@@ -123,7 +136,7 @@ pub fn discover_services(root: &Path, script: &str) -> Result<Vec<ServiceTarget>
                     relative_path: ".".to_string(),
                     directory: root.to_path_buf(),
                     command: pm.command_name().to_string(),
-                    args: pm.script_args(script),
+                    args: pm.script_args(script, extra_args),
                 });
             }
         }
@@ -140,6 +153,7 @@ fn inspect_package_dir(
     dir: &Path,
     pm: PackageManager,
     script: &str,
+    extra_args: &[String],
 ) -> Option<ServiceTarget> {
     let pkg_file = dir.join("package.json");
     if !pkg_file.exists() {
@@ -162,7 +176,7 @@ fn inspect_package_dir(
         relative_path: relative_str,
         directory: dir.to_path_buf(),
         command: pm.command_name().to_string(),
-        args: pm.script_args(script),
+        args: pm.script_args(script, extra_args),
     })
 }
 
@@ -232,14 +246,14 @@ mod tests {
         .unwrap();
 
         // Test running "dev": should find backend and frontend, but NOT ui
-        let dev_services = discover_services(&root, "dev").unwrap();
+        let dev_services = discover_services(&root, "dev", &[]).unwrap();
         assert_eq!(dev_services.len(), 2);
         assert_eq!(dev_services[0].relative_path, "apps/backend");
         assert_eq!(dev_services[0].args, vec!["run", "dev"]);
         assert_eq!(dev_services[1].relative_path, "apps/frontend");
 
         // Test running "test": should find backend and ui, but NOT frontend!
-        let test_services = discover_services(&root, "test").unwrap();
+        let test_services = discover_services(&root, "test", &[]).unwrap();
         assert_eq!(test_services.len(), 2);
         assert_eq!(test_services[0].relative_path, "apps/backend");
         assert_eq!(test_services[0].args, vec!["run", "test"]);
@@ -247,8 +261,39 @@ mod tests {
         assert_eq!(test_services[1].args, vec!["run", "test"]);
 
         // Test running "nonexistent": should find nothing
-        let none = discover_services(&root, "nonexistent").unwrap();
+        let none = discover_services(&root, "nonexistent", &[]).unwrap();
         assert_eq!(none.len(), 0);
+
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn test_forwarding_extra_arguments_to_services() {
+        let root = create_test_dir();
+
+        fs::write(
+            root.join("package.json"),
+            r#"{"name": "test-repo", "workspaces": ["apps/*"]}"#,
+        )
+        .unwrap();
+        fs::write(root.join("bun.lock"), "").unwrap();
+
+        let app = root.join("apps").join("desktop");
+        fs::create_dir_all(&app).unwrap();
+        fs::write(
+            app.join("package.json"),
+            r#"{"name": "@test/desktop", "scripts": {"tauri": "tauri"}}"#,
+        )
+        .unwrap();
+
+        let extra_args = vec!["dev".to_string(), "--debug".to_string()];
+        let services = discover_services(&root, "tauri", &extra_args).unwrap();
+        assert_eq!(services.len(), 1);
+        assert_eq!(services[0].relative_path, "apps/desktop");
+        assert_eq!(
+            services[0].args,
+            vec!["run", "tauri", "dev", "--debug"]
+        );
 
         let _ = fs::remove_dir_all(&root);
     }
@@ -257,13 +302,12 @@ mod tests {
     fn test_discover_real_traki_monorepo() {
         let t_path = PathBuf::from("/Users/muthu/Desktop/Projects/T");
         if t_path.exists() {
-            let dev_services = discover_services(&t_path, "dev").unwrap();
+            let dev_services = discover_services(&t_path, "dev", &[]).unwrap();
             let dev_paths: Vec<String> =
                 dev_services.into_iter().map(|s| s.relative_path).collect();
             assert_eq!(dev_paths, vec!["apps/admin", "apps/backend", "apps/frontend"]);
 
-            // In T: apps/admin, apps/backend, and ui have typecheck, but apps/frontend does not
-            let typecheck_services = discover_services(&t_path, "typecheck").unwrap();
+            let typecheck_services = discover_services(&t_path, "typecheck", &[]).unwrap();
             let tc_paths: Vec<String> = typecheck_services
                 .into_iter()
                 .map(|s| s.relative_path)
@@ -273,8 +317,7 @@ mod tests {
             assert!(tc_paths.contains(&"ui".to_string()));
             assert!(!tc_paths.contains(&"apps/frontend".to_string()));
 
-            // In T: apps/admin and apps/frontend have build, but apps/backend does not
-            let build_services = discover_services(&t_path, "build").unwrap();
+            let build_services = discover_services(&t_path, "build", &[]).unwrap();
             let build_paths: Vec<String> = build_services
                 .into_iter()
                 .map(|s| s.relative_path)

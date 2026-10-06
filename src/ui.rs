@@ -109,7 +109,7 @@ fn render_sidebar(frame: &mut Frame, app: &AppState, area: Rect) {
         })
         .collect();
 
-    let title = format!(" Services ({}) ", app.script_name);
+    let title = format!(" Services ({}) ", app.command_display);
     let block = Block::default()
         .title(title)
         .borders(Borders::ALL)

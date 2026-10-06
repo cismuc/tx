@@ -18,13 +18,19 @@ use tx::ui::{install_panic_hook, render_ui, TerminalGuard};
 async fn main() -> Result<()> {
     let cli = Cli::parse();
     let script = cli.script;
+    let extra_args = cli.args;
+    let command_display = if extra_args.is_empty() {
+        script.clone()
+    } else {
+        format!("{} {}", script, extra_args.join(" "))
+    };
 
     let target_dir = match cli.dir {
         Some(d) => PathBuf::from(d),
         None => env::current_dir()?,
     };
 
-    let services = match discover_services(&target_dir, &script) {
+    let services = match discover_services(&target_dir, &script, &extra_args) {
         Ok(s) if !s.is_empty() => s,
         Ok(_) => {
             eprintln!(
@@ -43,7 +49,7 @@ async fn main() -> Result<()> {
     println!(
         "Found {} packages with '{}'. Launching tx TUI...",
         services.len(),
-        script
+        command_display
     );
 
     install_panic_hook();
@@ -54,7 +60,7 @@ async fn main() -> Result<()> {
     let term_pane_rows = term_rows.saturating_sub(3).max(10);
 
     let (event_tx, mut event_rx) = unbounded_channel();
-    let mut app = AppState::new(services.clone(), script.clone(), term_pane_cols, term_pane_rows);
+    let mut app = AppState::new(services.clone(), command_display, term_pane_cols, term_pane_rows);
 
     let mut processes: Vec<Option<PtyProcess>> = Vec::with_capacity(services.len());
 
