@@ -125,11 +125,28 @@ fn render_terminal(frame: &mut Frame, app: &AppState, area: Rect) {
         .map(|s| s.target.relative_path.as_str())
         .unwrap_or("No Service");
 
-    let title = format!(" {} ", active_name);
+    let scroll_badge = if let Some(service) = app.active_service() {
+        let sb = service.parser.screen().scrollback();
+        if sb > 0 {
+            format!(" [Scrolled +{} | End to follow]", sb)
+        } else {
+            String::new()
+        }
+    } else {
+        String::new()
+    };
+
+    let title = format!(" {}{} ", active_name, scroll_badge);
+    let border_color = if app.focus_terminal {
+        Color::Cyan
+    } else {
+        Color::DarkGray
+    };
+
     let block = Block::default()
         .title(title)
         .borders(Borders::ALL)
-        .border_style(Style::default().fg(Color::DarkGray));
+        .border_style(Style::default().fg(border_color));
 
     let inner_area = block.inner(area);
     frame.render_widget(block, area);
@@ -149,13 +166,17 @@ fn render_status_bar(frame: &mut Frame, _app: &AppState, area: Rect) {
     let hints = Line::from(vec![
         Span::raw(" "),
         Span::styled("[", bracket_style),
-        Span::styled("↑/↓", key_style),
-        Span::styled("] ", bracket_style),
-        Span::styled("Select   ", desc_style),
-        Span::styled("[", bracket_style),
-        Span::styled("Click", key_style),
+        Span::styled("Tab", key_style),
         Span::styled("] ", bracket_style),
         Span::styled("Focus   ", desc_style),
+        Span::styled("[", bracket_style),
+        Span::styled("↑/↓", key_style),
+        Span::styled("] ", bracket_style),
+        Span::styled("Select/Scroll   ", desc_style),
+        Span::styled("[", bracket_style),
+        Span::styled("PgUp/Dn", key_style),
+        Span::styled("] ", bracket_style),
+        Span::styled("Scroll   ", desc_style),
         Span::styled("[", bracket_style),
         Span::styled("r", key_style),
         Span::styled("] ", bracket_style),

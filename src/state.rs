@@ -16,7 +16,7 @@ pub struct ServiceState {
 
 impl ServiceState {
     pub fn new(target: ServiceTarget, cols: u16, rows: u16) -> Self {
-        let parser = vt100::Parser::new(rows.max(10), cols.max(20), 5000);
+        let parser = vt100::Parser::new(rows.max(10), cols.max(20), 20000);
         Self {
             target,
             status: ServiceStatus::Stopped,
@@ -27,6 +27,7 @@ impl ServiceState {
 
     pub fn feed(&mut self, data: &[u8]) {
         self.parser.process(data);
+        self.scroll_offset = self.parser.screen().scrollback();
     }
 }
 
@@ -57,6 +58,7 @@ impl AppState {
         if index < self.services.len() {
             self.active_index = index;
             if let Some(s) = self.services.get_mut(index) {
+                s.parser.set_scrollback(0);
                 s.scroll_offset = 0;
             }
         }
@@ -112,13 +114,24 @@ impl AppState {
 
     pub fn scroll_up(&mut self, amount: usize) {
         if let Some(service) = self.active_service_mut() {
-            service.scroll_offset = service.scroll_offset.saturating_add(amount);
+            let current = service.parser.screen().scrollback();
+            service.parser.set_scrollback(current.saturating_add(amount));
+            service.scroll_offset = service.parser.screen().scrollback();
         }
     }
 
     pub fn scroll_down(&mut self, amount: usize) {
         if let Some(service) = self.active_service_mut() {
-            service.scroll_offset = service.scroll_offset.saturating_sub(amount);
+            let current = service.parser.screen().scrollback();
+            service.parser.set_scrollback(current.saturating_sub(amount));
+            service.scroll_offset = service.parser.screen().scrollback();
+        }
+    }
+
+    pub fn scroll_to_bottom(&mut self) {
+        if let Some(service) = self.active_service_mut() {
+            service.parser.set_scrollback(0);
+            service.scroll_offset = 0;
         }
     }
 }
@@ -183,5 +196,35 @@ mod tests {
             "Screen contents did not contain expected text. Got: {}",
             contents
         );
+    }
+
+    #[test]
+    fn test_scroll_up_and_down_updates_parser() {
+        let targets = vec![mock_target("apps/backend")];
+        let mut app = AppState::new(targets, "dev".to_string(), 80, 10);
+
+        // Feed 30 lines
+        for i in 0..30 {
+            app.feed_output(0, format!("line {}\r\n", i).as_bytes());
+        }
+
+        assert_eq!(app.active_service().unwrap().parser.screen().scrollback(), 0);
+
+        // Scroll up 5 lines
+        app.scroll_up(5);
+        assert_eq!(app.active_service().unwrap().parser.screen().scrollback(), 5);
+        assert_eq!(app.active_service().unwrap().scroll_offset, 5);
+
+        // Scroll up another 10 lines
+        app.scroll_up(10);
+        assert_eq!(app.active_service().unwrap().parser.screen().scrollback(), 15);
+
+        // Scroll down 4 lines
+        app.scroll_down(4);
+        assert_eq!(app.active_service().unwrap().parser.screen().scrollback(), 11);
+
+        // Scroll to bottom
+        app.scroll_to_bottom();
+        assert_eq!(app.active_service().unwrap().parser.screen().scrollback(), 0);
     }
 }

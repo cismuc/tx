@@ -126,11 +126,38 @@ async fn main() -> Result<()> {
                                 app.should_quit = true;
                                 break;
                             }
+                            KeyCode::Tab => {
+                                app.focus_terminal = !app.focus_terminal;
+                            }
+                            KeyCode::Esc => {
+                                app.scroll_to_bottom();
+                                app.focus_terminal = false;
+                            }
+                            KeyCode::PageUp => {
+                                app.scroll_up(10);
+                            }
+                            KeyCode::PageDown => {
+                                app.scroll_down(10);
+                            }
+                            KeyCode::End => {
+                                app.scroll_to_bottom();
+                            }
+                            KeyCode::Home => {
+                                app.scroll_up(20000);
+                            }
                             KeyCode::Up | KeyCode::Char('k') => {
-                                app.select_prev();
+                                if key.modifiers.contains(KeyModifiers::SHIFT) || app.focus_terminal {
+                                    app.scroll_up(3);
+                                } else {
+                                    app.select_prev();
+                                }
                             }
                             KeyCode::Down | KeyCode::Char('j') => {
-                                app.select_next();
+                                if key.modifiers.contains(KeyModifiers::SHIFT) || app.focus_terminal {
+                                    app.scroll_down(3);
+                                } else {
+                                    app.select_next();
+                                }
                             }
                             KeyCode::Char('r') => {
                                 // Restart active service
