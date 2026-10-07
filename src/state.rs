@@ -7,6 +7,60 @@ pub enum ServiceStatus {
     Failed(Option<u32>),
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TerminalPos {
+    pub col: u16,
+    pub row: u16,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Selection {
+    pub start: TerminalPos,
+    pub end: TerminalPos,
+}
+
+impl Selection {
+    pub fn new(col: u16, row: u16) -> Self {
+        let pos = TerminalPos { col, row };
+        Self { start: pos, end: pos }
+    }
+
+    pub fn update(&mut self, col: u16, row: u16) {
+        self.end = TerminalPos { col, row };
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.start == self.end
+    }
+
+    pub fn normalized(&self) -> (TerminalPos, TerminalPos) {
+        if (self.start.row, self.start.col) <= (self.end.row, self.end.col) {
+            (self.start, self.end)
+        } else {
+            (self.end, self.start)
+        }
+    }
+
+    pub fn contains(&self, col: u16, row: u16) -> bool {
+        if self.is_empty() {
+            return false;
+        }
+        let (first, last) = self.normalized();
+        if row < first.row || row > last.row {
+            return false;
+        }
+        if first.row == last.row {
+            row == first.row && col >= first.col && col <= last.col
+        } else if row == first.row {
+            col >= first.col
+        } else if row == last.row {
+            col <= last.col
+        } else {
+            true
+        }
+    }
+}
+
 pub struct ServiceState {
     pub target: ServiceTarget,
     pub status: ServiceStatus,
@@ -37,6 +91,8 @@ pub struct AppState {
     pub command_display: String,
     pub should_quit: bool,
     pub focus_terminal: bool,
+    pub selection: Option<Selection>,
+    pub status_message: Option<(String, std::time::Instant)>,
 }
 
 impl AppState {
@@ -51,6 +107,8 @@ impl AppState {
             command_display,
             should_quit: false,
             focus_terminal: false,
+            selection: None,
+            status_message: None,
         }
     }
 
@@ -61,6 +119,7 @@ impl AppState {
                 s.parser.set_scrollback(0);
                 s.scroll_offset = 0;
             }
+            self.clear_selection();
         }
     }
 
@@ -133,6 +192,52 @@ impl AppState {
             service.parser.set_scrollback(0);
             service.scroll_offset = 0;
         }
+    }
+
+    pub fn start_selection(&mut self, col: u16, row: u16) {
+        self.selection = Some(Selection::new(col, row));
+    }
+
+    pub fn update_selection(&mut self, col: u16, row: u16) {
+        if let Some(sel) = self.selection.as_mut() {
+            sel.update(col, row);
+        }
+    }
+
+    pub fn clear_selection(&mut self) {
+        self.selection = None;
+    }
+
+    pub fn has_active_selection(&self) -> bool {
+        self.selection.as_ref().map_or(false, |s| !s.is_empty())
+    }
+
+    pub fn copy_selection(&mut self) -> bool {
+        if let Some(sel) = &self.selection {
+            if !sel.is_empty() {
+                if let Some(service) = self.active_service() {
+                    let screen = service.parser.screen();
+                    let (_, cols) = screen.size();
+                    let (first, last) = sel.normalized();
+                    let end_col = (last.col.saturating_add(1)).min(cols);
+                    let raw_text = screen.contents_between(first.row, first.col, last.row, end_col);
+                    let text = crate::clipboard::clean_copied_text(&raw_text);
+                    if !text.is_empty() {
+                        let copied = crate::clipboard::copy_to_clipboard(&text);
+                        let char_count = text.chars().count();
+                        let line_count = text.lines().count();
+                        let msg = if line_count > 1 {
+                            format!("Copied {} lines ({} chars) to clipboard", line_count, char_count)
+                        } else {
+                            format!("Copied {} chars to clipboard", char_count)
+                        };
+                        self.status_message = Some((msg, std::time::Instant::now()));
+                        return copied;
+                    }
+                }
+            }
+        }
+        false
     }
 }
 
@@ -226,5 +331,27 @@ mod tests {
         // Scroll to bottom
         app.scroll_to_bottom();
         assert_eq!(app.active_service().unwrap().parser.screen().scrollback(), 0);
+    }
+
+    #[test]
+    fn test_selection_contains_and_copy() {
+        let targets = vec![mock_target("apps/backend")];
+        let mut app = AppState::new(targets, "dev".to_string(), 80, 10);
+        app.feed_output(0, b"Hello World!\r\nSecond Line\r\n");
+
+        app.start_selection(0, 0);
+        app.update_selection(10, 0);
+
+        assert!(app.has_active_selection());
+        let sel = app.selection.as_ref().unwrap();
+        assert!(sel.contains(0, 0));
+        assert!(sel.contains(5, 0));
+        assert!(sel.contains(10, 0));
+        assert!(!sel.contains(11, 0));
+        assert!(!sel.contains(0, 1));
+
+        let copied = app.copy_selection();
+        assert!(copied);
+        assert!(app.status_message.is_some());
     }
 }

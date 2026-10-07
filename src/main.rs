@@ -130,6 +130,7 @@ async fn main() -> Result<()> {
                                 app.focus_terminal = !app.focus_terminal;
                             }
                             KeyCode::Esc => {
+                                app.clear_selection();
                                 app.scroll_to_bottom();
                                 app.focus_terminal = false;
                             }
@@ -144,6 +145,11 @@ async fn main() -> Result<()> {
                             }
                             KeyCode::Home => {
                                 app.scroll_up(20000);
+                            }
+                            KeyCode::Char('y') => {
+                                if app.has_active_selection() {
+                                    app.copy_selection();
+                                }
                             }
                             KeyCode::Up | KeyCode::Char('k') => {
                                 if key.modifiers.contains(KeyModifiers::SHIFT) || app.focus_terminal {

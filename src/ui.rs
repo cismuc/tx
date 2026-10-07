@@ -155,10 +155,46 @@ fn render_terminal(frame: &mut Frame, app: &AppState, area: Rect) {
         let screen = service.parser.screen();
         let pseudo_term = PseudoTerminal::new(screen);
         frame.render_widget(pseudo_term, inner_area);
+
+        // Highlight selection if active
+        if let Some(sel) = &app.selection {
+            if !sel.is_empty() {
+                let buf = frame.buffer_mut();
+                for r in 0..inner_area.height {
+                    for c in 0..inner_area.width {
+                        if sel.contains(c, r) {
+                            let cell_x = inner_area.x + c;
+                            let cell_y = inner_area.y + r;
+                            if let Some(cell) = buf.cell_mut((cell_x, cell_y)) {
+                                cell.set_style(
+                                    Style::default()
+                                        .bg(Color::Blue)
+                                        .fg(Color::White)
+                                        .add_modifier(Modifier::BOLD),
+                                );
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 
-fn render_status_bar(frame: &mut Frame, _app: &AppState, area: Rect) {
+fn render_status_bar(frame: &mut Frame, app: &AppState, area: Rect) {
+    if let Some((msg, time)) = &app.status_message {
+        if time.elapsed() < std::time::Duration::from_secs(3) {
+            let toast = Line::from(vec![
+                Span::raw(" "),
+                Span::styled("✓ ", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
+                Span::styled(msg, Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
+            ]);
+            let status = Paragraph::new(toast);
+            frame.render_widget(status, area);
+            return;
+        }
+    }
+
     let key_style = Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD);
     let desc_style = Style::default().fg(Color::DarkGray);
     let bracket_style = Style::default().fg(Color::DarkGray);
@@ -177,6 +213,10 @@ fn render_status_bar(frame: &mut Frame, _app: &AppState, area: Rect) {
         Span::styled("PgUp/Dn", key_style),
         Span::styled("] ", bracket_style),
         Span::styled("Scroll   ", desc_style),
+        Span::styled("[", bracket_style),
+        Span::styled("Drag", key_style),
+        Span::styled("] ", bracket_style),
+        Span::styled("Copy   ", desc_style),
         Span::styled("[", bracket_style),
         Span::styled("r", key_style),
         Span::styled("] ", bracket_style),

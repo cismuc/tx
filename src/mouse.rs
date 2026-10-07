@@ -10,6 +10,9 @@ pub fn handle_mouse_event(event: MouseEvent, areas: &LayoutAreas, app: &mut AppS
     match event.kind {
         MouseEventKind::Down(MouseButton::Left) => {
             if is_inside(col, row, areas.sidebar) {
+                app.focus_terminal = false;
+                app.clear_selection();
+
                 // Account for border (1 line at top)
                 let content_top = areas.sidebar.y + 1;
                 let content_bottom = areas.sidebar.y + areas.sidebar.height.saturating_sub(1);
@@ -21,8 +24,35 @@ pub fn handle_mouse_event(event: MouseEvent, areas: &LayoutAreas, app: &mut AppS
                     }
                 }
             } else if is_inside(col, row, areas.terminal) {
-                // Click in terminal area
                 app.focus_terminal = true;
+                let inner = terminal_inner(areas.terminal);
+                if is_inside(col, row, inner) {
+                    let p_col = col.saturating_sub(inner.x);
+                    let p_row = row.saturating_sub(inner.y);
+                    app.start_selection(p_col, p_row);
+                } else {
+                    app.clear_selection();
+                }
+            }
+        }
+        MouseEventKind::Drag(MouseButton::Left) => {
+            if app.focus_terminal && is_inside(col, row, areas.terminal) {
+                let inner = terminal_inner(areas.terminal);
+                let p_col = col.saturating_sub(inner.x).min(inner.width.saturating_sub(1));
+                let p_row = row.saturating_sub(inner.y).min(inner.height.saturating_sub(1));
+                app.update_selection(p_col, p_row);
+
+                // Auto-scroll when dragging near top or bottom border
+                if row <= inner.y && inner.height > 0 {
+                    app.scroll_up(1);
+                } else if row >= inner.y.saturating_add(inner.height).saturating_sub(1) {
+                    app.scroll_down(1);
+                }
+            }
+        }
+        MouseEventKind::Up(MouseButton::Left) => {
+            if app.focus_terminal && app.has_active_selection() {
+                app.copy_selection();
             }
         }
         MouseEventKind::ScrollUp => {
@@ -40,6 +70,15 @@ pub fn handle_mouse_event(event: MouseEvent, areas: &LayoutAreas, app: &mut AppS
             }
         }
         _ => {}
+    }
+}
+
+pub fn terminal_inner(area: Rect) -> Rect {
+    Rect {
+        x: area.x.saturating_add(1),
+        y: area.y.saturating_add(1),
+        width: area.width.saturating_sub(2),
+        height: area.height.saturating_sub(2),
     }
 }
 
@@ -175,5 +214,45 @@ mod tests {
         };
         handle_mouse_event(scroll_up, &areas, &mut app);
         assert_eq!(app.active_index, 0);
+    }
+
+    #[test]
+    fn test_mouse_drag_in_terminal_creates_selection() {
+        let mut app = mock_app();
+        let areas = mock_areas();
+
+        let m_down = MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: 30, // inner x = 1
+            row: 2,    // inner y = 1
+            modifiers: crossterm::event::KeyModifiers::NONE,
+        };
+        handle_mouse_event(m_down, &areas, &mut app);
+        assert!(app.focus_terminal);
+        assert!(app.selection.is_some());
+        assert!(app.selection.as_ref().unwrap().is_empty());
+
+        let m_drag = MouseEvent {
+            kind: MouseEventKind::Drag(MouseButton::Left),
+            column: 35, // inner x = 6
+            row: 2,    // inner y = 1
+            modifiers: crossterm::event::KeyModifiers::NONE,
+        };
+        handle_mouse_event(m_drag, &areas, &mut app);
+        assert!(app.has_active_selection());
+        let sel = app.selection.as_ref().unwrap();
+        assert_eq!(sel.start.col, 1);
+        assert_eq!(sel.start.row, 1);
+        assert_eq!(sel.end.col, 6);
+        assert_eq!(sel.end.row, 1);
+
+        let m_up = MouseEvent {
+            kind: MouseEventKind::Up(MouseButton::Left),
+            column: 35,
+            row: 2,
+            modifiers: crossterm::event::KeyModifiers::NONE,
+        };
+        handle_mouse_event(m_up, &areas, &mut app);
+        assert!(app.has_active_selection());
     }
 }

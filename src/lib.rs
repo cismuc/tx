@@ -1,4 +1,5 @@
 pub mod cli;
+pub mod clipboard;
 pub mod discovery;
 pub mod mouse;
 pub mod pty;
