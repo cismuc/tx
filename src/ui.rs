@@ -199,7 +199,72 @@ fn render_status_bar(frame: &mut Frame, app: &AppState, area: Rect) {
     let desc_style = Style::default().fg(Color::DarkGray);
     let bracket_style = Style::default().fg(Color::DarkGray);
 
-    let hints = Line::from(vec![
+    let mut spans = Vec::new();
+
+    // Render update status on bottom left if active
+    match &app.update_status {
+        crate::state::UpdateStatus::Available { version, .. } => {
+            spans.push(Span::raw(" "));
+            spans.push(Span::styled("[", bracket_style));
+            spans.push(Span::styled(
+                format!("Update v{} available! Press ", version),
+                Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+            ));
+            spans.push(Span::styled("u", key_style));
+            spans.push(Span::styled("] ", bracket_style));
+        }
+        crate::state::UpdateStatus::Downloading {
+            version,
+            percent,
+            downloaded,
+            total,
+        } => {
+            let down_mb = *downloaded as f64 / 1_048_576.0;
+            let tot_mb = *total as f64 / 1_048_576.0;
+            spans.push(Span::raw(" "));
+            spans.push(Span::styled("[", bracket_style));
+            spans.push(Span::styled(
+                format!(
+                    "Downloading v{}: {}% ({:.1}MB/{:.1}MB)",
+                    version, percent, down_mb, tot_mb
+                ),
+                Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+            ));
+            spans.push(Span::styled("] ", bracket_style));
+        }
+        crate::state::UpdateStatus::Installing { version } => {
+            spans.push(Span::raw(" "));
+            spans.push(Span::styled("[", bracket_style));
+            spans.push(Span::styled(
+                format!("Installing v{}...", version),
+                Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+            ));
+            spans.push(Span::styled("] ", bracket_style));
+        }
+        crate::state::UpdateStatus::ReadyToRestart { version } => {
+            spans.push(Span::raw(" "));
+            spans.push(Span::styled("[", bracket_style));
+            spans.push(Span::styled(
+                format!("✓ Updated to v{}! Press 'q' then restart", version),
+                Style::default().fg(Color::Green).add_modifier(Modifier::BOLD),
+            ));
+            spans.push(Span::styled("] ", bracket_style));
+        }
+        crate::state::UpdateStatus::Failed { error, timestamp } => {
+            if timestamp.elapsed() < std::time::Duration::from_secs(5) {
+                spans.push(Span::raw(" "));
+                spans.push(Span::styled("[", bracket_style));
+                spans.push(Span::styled(
+                    format!("Update failed: {}", error),
+                    Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
+                ));
+                spans.push(Span::styled("] ", bracket_style));
+            }
+        }
+        crate::state::UpdateStatus::Idle => {}
+    }
+
+    spans.extend(vec![
         Span::raw(" "),
         Span::styled("[", bracket_style),
         Span::styled("Tab", key_style),
@@ -227,7 +292,7 @@ fn render_status_bar(frame: &mut Frame, app: &AppState, area: Rect) {
         Span::styled("Quit", desc_style),
     ]);
 
-    let status = Paragraph::new(hints);
+    let status = Paragraph::new(Line::from(spans));
     frame.render_widget(status, area);
 }
 
@@ -259,5 +324,38 @@ mod tests {
                 assert_eq!(areas.terminal.width, 52);
             })
             .unwrap();
+    }
+
+    #[test]
+    fn test_ui_rendering_with_update_available() {
+        use crate::state::UpdateStatus;
+
+        let target = ServiceTarget {
+            name: "test".to_string(),
+            relative_path: "apps/backend".to_string(),
+            directory: PathBuf::from("apps/backend"),
+            command: "bun".to_string(),
+            args: vec!["run".to_string(), "dev".to_string()],
+        };
+
+        let mut app = AppState::new(vec![target], "dev".to_string(), 80, 24);
+        app.update_status = UpdateStatus::Available {
+            version: "1.2.0".to_string(),
+            download_url: "https://example.com".to_string(),
+            asset_size: 1024,
+        };
+
+        let backend = TestBackend::new(80, 24);
+        let mut terminal = Terminal::new(backend).unwrap();
+
+        terminal
+            .draw(|f| {
+                render_ui(f, &app);
+            })
+            .unwrap();
+
+        let buf = terminal.backend().buffer();
+        let last_row_text: String = (0..80).map(|x| buf[(x, 23)].symbol().chars().next().unwrap_or(' ')).collect();
+        assert!(last_row_text.contains("Update v1.2.0 available"));
     }
 }

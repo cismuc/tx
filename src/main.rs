@@ -11,8 +11,30 @@ use tx::cli::Cli;
 use tx::discovery::discover_services;
 use tx::mouse::handle_mouse_event;
 use tx::pty::{ProcessEvent, PtyProcess};
-use tx::state::AppState;
+use tx::state::{AppState, UpdateStatus};
 use tx::ui::{install_panic_hook, render_ui, TerminalGuard};
+
+#[derive(Debug)]
+enum UpdaterEvent {
+    Available {
+        version: String,
+        download_url: String,
+        asset_size: u64,
+    },
+    Progress {
+        version: String,
+        percent: u8,
+        downloaded: u64,
+        total: u64,
+    },
+    Installing {
+        version: String,
+    },
+    Success {
+        version: String,
+    },
+    Failed(String),
+}
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -89,6 +111,18 @@ async fn main() -> Result<()> {
     let mut tick = interval(Duration::from_millis(33)); // ~30 fps refresh
     let mut layout_areas = None;
 
+    let (update_tx, mut update_rx) = unbounded_channel();
+    let check_tx = update_tx.clone();
+    tokio::task::spawn_blocking(move || {
+        if let Ok(Some((version, download_url, asset_size))) = tx::updater::check_for_update() {
+            let _ = check_tx.send(UpdaterEvent::Available {
+                version,
+                download_url,
+                asset_size,
+            });
+        }
+    });
+
     loop {
         if app.should_quit {
             break;
@@ -100,6 +134,38 @@ async fn main() -> Result<()> {
                     let areas = render_ui(f, &app);
                     layout_areas = Some(areas);
                 })?;
+            }
+
+            Some(update_event) = update_rx.recv() => {
+                match update_event {
+                    UpdaterEvent::Available { version, download_url, asset_size } => {
+                        app.update_status = UpdateStatus::Available {
+                            version,
+                            download_url,
+                            asset_size,
+                        };
+                    }
+                    UpdaterEvent::Progress { version, percent, downloaded, total } => {
+                        app.update_status = UpdateStatus::Downloading {
+                            version,
+                            percent,
+                            downloaded,
+                            total,
+                        };
+                    }
+                    UpdaterEvent::Installing { version } => {
+                        app.update_status = UpdateStatus::Installing { version };
+                    }
+                    UpdaterEvent::Success { version } => {
+                        app.update_status = UpdateStatus::ReadyToRestart { version };
+                    }
+                    UpdaterEvent::Failed(err) => {
+                        app.update_status = UpdateStatus::Failed {
+                            error: err,
+                            timestamp: std::time::Instant::now(),
+                        };
+                    }
+                }
             }
 
             Some(process_event) = event_rx.recv() => {
@@ -125,6 +191,55 @@ async fn main() -> Result<()> {
                             KeyCode::Char('q') => {
                                 app.should_quit = true;
                                 break;
+                            }
+                            KeyCode::Char('u') => {
+                                if let UpdateStatus::Available { version, download_url, asset_size } = &app.update_status {
+                                    let v = version.clone();
+                                    let url = download_url.clone();
+                                    let size = *asset_size;
+                                    let tx = update_tx.clone();
+
+                                    app.update_status = UpdateStatus::Downloading {
+                                        version: v.clone(),
+                                        percent: 0,
+                                        downloaded: 0,
+                                        total: size,
+                                    };
+
+                                    tokio::task::spawn_blocking(move || {
+                                        let tx_progress = tx.clone();
+                                        let v_progress = v.clone();
+                                        let tx_install = tx.clone();
+                                        let v_install = v.clone();
+                                        let result = tx::updater::download_and_install(
+                                            &url,
+                                            size,
+                                            &v,
+                                            move |percent, downloaded, total| {
+                                                let _ = tx_progress.send(UpdaterEvent::Progress {
+                                                    version: v_progress.clone(),
+                                                    percent,
+                                                    downloaded,
+                                                    total,
+                                                });
+                                            },
+                                            move || {
+                                                let _ = tx_install.send(UpdaterEvent::Installing {
+                                                    version: v_install.clone(),
+                                                });
+                                            },
+                                        );
+
+                                        match result {
+                                            Ok(()) => {
+                                                let _ = tx.send(UpdaterEvent::Success { version: v });
+                                            }
+                                            Err(e) => {
+                                                let _ = tx.send(UpdaterEvent::Failed(format!("{:#}", e)));
+                                            }
+                                        }
+                                    });
+                                }
                             }
                             KeyCode::Tab => {
                                 app.focus_terminal = !app.focus_terminal;

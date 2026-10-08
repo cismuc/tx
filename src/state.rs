@@ -85,6 +85,32 @@ impl ServiceState {
     }
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub enum UpdateStatus {
+    Idle,
+    Available {
+        version: String,
+        download_url: String,
+        asset_size: u64,
+    },
+    Downloading {
+        version: String,
+        percent: u8,
+        downloaded: u64,
+        total: u64,
+    },
+    Installing {
+        version: String,
+    },
+    ReadyToRestart {
+        version: String,
+    },
+    Failed {
+        error: String,
+        timestamp: std::time::Instant,
+    },
+}
+
 pub struct AppState {
     pub services: Vec<ServiceState>,
     pub active_index: usize,
@@ -93,6 +119,7 @@ pub struct AppState {
     pub focus_terminal: bool,
     pub selection: Option<Selection>,
     pub status_message: Option<(String, std::time::Instant)>,
+    pub update_status: UpdateStatus,
 }
 
 impl AppState {
@@ -109,6 +136,7 @@ impl AppState {
             focus_terminal: false,
             selection: None,
             status_message: None,
+            update_status: UpdateStatus::Idle,
         }
     }
 
